@@ -1,0 +1,10 @@
+
+kimp1emu
+========
+
+A simple, quick and dirty solution for testing my kimp1 software.
+Emulates memory mapping, address decoding including mirrored registers
+and other low level stuff.
+
+Based on z80emu written by Lin Ke-Fong. Thank you very much, Lin!
+    z80emu on Github: https://github.com/anotherlin/z80emu
