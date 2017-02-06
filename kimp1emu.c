@@ -1,4 +1,6 @@
 
+#include <stdio.h>
+#include <string.h>
 
 #include "kimp1emu.h"
 
@@ -11,9 +13,31 @@ void kimp_init(KIMP_CONTEXT *context)
     context->tccr = 0;
     context->ebcr = 0;
 
+    context->has_extension = 0;
     context->stopped = 0;
 }
 
+int loadRomfile(const char *romfilename, KIMP_CONTEXT *context)
+{
+    FILE *romfile = fopen(romfilename, "rb");
+    if(romfile == NULL)
+    {
+        printf("Error: Can't open romfile '%s'\n", romfilename);
+        return -1;
+    }
+
+    size_t c = fread(context->rom, 1, ROM_SIZE, romfile);
+    fclose(romfile);
+    if(c == 0)
+    {
+        printf("Error: Failed to read romfile\n");
+        return -1;
+    }
+
+    printf("Read %i bytes to ROM\n", (int)c);
+
+    return 0;
+}
 
 void usage()
 {
@@ -21,19 +45,27 @@ void usage()
         "Usage kimp1emu [options]* romfile \n"
         "Options are: \n"
         "    -h    Shows this message \n"
+        "    -e    Emulate with extension board \n"
     );
 }
 
 
 int main(int argc, const char **argv)
 {
+    KIMP_CONTEXT context;
+    kimp_init(&context);
+
     const char *romfilename = NULL;
-    for(int32_t i = 0; i < argc; ++i)
+    for(int32_t i = 1; i < argc; ++i)
     {
-        if(strcmp(argv[i], "-h")
+        if(!strcmp(argv[i], "-h"))
         {
             usage();
             return 0;
+
+        }else if(!strcmp(argv[i], "-e"))
+        {
+            context.has_extension = 1;
 
         }else
         {
@@ -55,33 +87,8 @@ int main(int argc, const char **argv)
         return -1;
     }
 
-    FILE *romfile = fopen(romfilename, "rb");
-    if(romfile == NULL)
+    if(loadRomfile(romfilename, &context))
     {
-        printf("Error: Can't open romfile '%s'", romfilename);
-        return -1;
-    }
-
-    size_t romfilesize;
-    fseek(romfile, 0, SEEK_END);
-    romfilesize = ftell(romfile);
-    fseek(romfile, 0, SEEK_SET);
-
-    if(romfilesize > ROM_SIZE)
-    {
-        romfilesize = ROM_SIZE;
-
-        printf("Warning: Truncated romfile to maximum rom size");
-    }
-
-    KIMP_CONTEXT context;
-    kimp_init(&context);
-
-    size_t c = fread(context.rom, 1, romfilesize, romfile);
-    fclose(romfile);
-    if(c != romfilesize)
-    {
-        printf("Error: Failed to read romfile");
         return -1;
     }
 

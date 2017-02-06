@@ -3,6 +3,8 @@
 #ifndef KIMP1EMU_H_INCLUDED
 #define KIMP1EMU_H_INCLUDED
 
+#include <stdint.h>
+
 #include "z80emu/z80emu.h"
 
 #define ROM_SIZE 0x2000
@@ -21,6 +23,7 @@ typedef struct KIMP_CONTEXT
     uint8_t ivr_fdc;
     uint8_t ivr_rtc;
 
+    uint8_t has_extension;
     uint8_t stopped;
 
 } KIMP_CONTEXT;

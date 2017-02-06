@@ -2,6 +2,13 @@
 
 #include "bus.h"
 
+#include "usart.h"
+#include "pit.h"
+#include "fdc.h"
+#include "rtc.h"
+
+#include <stdio.h>
+
 uint8_t floatingBus()
 {
     return 0;
@@ -21,7 +28,7 @@ uint8_t readByte(uint16_t address, KIMP_CONTEXT *context)
 
 uint16_t readWord(uint16_t address, KIMP_CONTEXT *context)
 {
-    return readByte(address, context) | readByte(address, context) << 8;
+    return readByte(address, context) | readByte(address+1, context) << 8;
 }
 
 void writeByte(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
@@ -35,13 +42,13 @@ void writeByte(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 void writeWord(uint16_t address, uint16_t data, KIMP_CONTEXT *context)
 {
     writeByte(address, data & 0xff, context);
-    writeByte(address, data >> 8, context);
+    writeByte(address+1, data >> 8, context);
 }
 
 uint8_t ioRead(uint16_t address, KIMP_CONTEXT *context)
 {
     // simulate io decoding
-    if(!(address & 0x80)) // bit 7 must be 0
+    if(address & 0x80) // bit 7 must be 0
     {
         return floatingBus();
     }
@@ -79,7 +86,7 @@ uint8_t ioRead(uint16_t address, KIMP_CONTEXT *context)
         {
             if(cst == 2) // ebcr at line 2, line 0,1 are IVRs. line 3 not used atm
             {
-                return context->ebcr ^ 1; ; first bit reads inverted
+                return context->ebcr ^ 1; // first bit reads inverted
             }
 
             return floatingBus(); // IVRs are not readable
@@ -100,7 +107,7 @@ uint8_t ioRead(uint16_t address, KIMP_CONTEXT *context)
 void ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 {
     // simulate io decoding
-    if(!(address & 0x80)) // bit 7 must be 0
+    if(address & 0x80) // bit 7 must be 0
     {
         return;
     }
