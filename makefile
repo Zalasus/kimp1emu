@@ -1,6 +1,6 @@
 
 CC=gcc
-CFLAGS=-I. -I./z80emu/ -Wall -O3 -std=c99
+CFLAGS=-I. -I./z80emu/ -Wall -O3 -std=c99 -lncurses
 DEPS = bus.h kimp1emu.h pit.h fdc.h usart.h rtc.h
 
 all: kimp1emu

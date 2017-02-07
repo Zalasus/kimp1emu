@@ -11,3 +11,10 @@ void rtc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 {
 
 }
+
+void rtc_tick(double usElapsed, KIMP_CONTEXT *context)
+{
+
+    
+
+}

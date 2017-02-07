@@ -10,6 +10,9 @@
 #define ROM_SIZE 0x2000
 #define RAM_SIZE 0xffff
 
+#define CPU_SPEED 2457600
+#define CPU_SPEED_MHZ 2.4576
+
 typedef struct KIMP_CONTEXT
 {
     Z80_STATE state;

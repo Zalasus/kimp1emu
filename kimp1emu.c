@@ -1,9 +1,13 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ncurses.h>
 
 #include "kimp1emu.h"
 
+#include "pit.h"
+#include "fdc.h"
+#include "rtc.h"
 
 void kimp_init(KIMP_CONTEXT *context)
 {
@@ -37,6 +41,17 @@ int loadRomfile(const char *romfilename, KIMP_CONTEXT *context)
     printf("Read %i bytes to ROM\n", (int)c);
 
     return 0;
+}
+
+void ui_init()
+{
+
+    initscr();
+    noecho();
+    cbreak();
+    nodelay(stdscr, TRUE);
+    scrollok(stdscr, TRUE);
+
 }
 
 void usage()
@@ -92,13 +107,22 @@ int main(int argc, const char **argv)
         return -1;
     }
 
+    ui_init();
     
     Z80Reset(&context.state);
 
     while(!context.stopped)
     {
-        Z80Emulate(&context.state, 100, &context);
+        uint32_t ticksElapsed = Z80Emulate(&context.state, 50, &context);
+
+        double usElapsed = (double)ticksElapsed / CPU_SPEED_MHZ;
+
+        fdc_tick(usElapsed, &context);
+        pit_tick(usElapsed, &context);
+        rtc_tick(usElapsed, &context);
     }
+
+    endwin();
 
     return 0;
 }

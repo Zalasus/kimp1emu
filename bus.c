@@ -140,9 +140,17 @@ void ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
         if(!context->has_extension)
             break;
 
-        if(css != 3) // fdc uses select line 0,1 and 2. third io decoder is at line 3
+        if(css == 0) // fdc uses select line 0,1 and 2. third io decoder is at line 3
         {
             fdc_ioWrite(reg, data, context);
+
+        }else if(css == 1)
+        {
+            fdc_writeOpReg(data, context);
+
+        }else if(css == 2)
+        {
+            fdc_writeContReg(data, context);
 
         }else 
         {
