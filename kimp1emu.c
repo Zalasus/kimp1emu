@@ -1,5 +1,7 @@
 
 #include <stdio.h>
+#define __USE_POSIX199309
+#include <time.h>
 #include <string.h>
 #include <ncurses.h>
 
@@ -8,6 +10,7 @@
 #include "pit.h"
 #include "fdc.h"
 #include "rtc.h"
+#include "usart.h"
 
 void kimp_init(KIMP_CONTEXT *context)
 {
@@ -17,8 +20,8 @@ void kimp_init(KIMP_CONTEXT *context)
     context->tccr = 0;
     context->ebcr = 0;
 
-    context->has_extension = 0;
-    context->stopped = 0;
+    context->has_extension = FALSE;
+    context->stopped = FALSE;
 }
 
 int loadRomfile(const char *romfilename, KIMP_CONTEXT *context)
@@ -61,6 +64,7 @@ void usage()
         "Options are: \n"
         "    -h    Shows this message \n"
         "    -e    Emulate with extension board \n"
+        "    -r    Emulate in realtime\n"
     );
 }
 
@@ -71,6 +75,7 @@ int main(int argc, const char **argv)
     kimp_init(&context);
 
     const char *romfilename = NULL;
+    int realtime = FALSE;
     for(int32_t i = 1; i < argc; ++i)
     {
         if(!strcmp(argv[i], "-h"))
@@ -80,7 +85,11 @@ int main(int argc, const char **argv)
 
         }else if(!strcmp(argv[i], "-e"))
         {
-            context.has_extension = 1;
+            context.has_extension = TRUE;
+
+        }else if(!strcmp(argv[i], "-r"))
+        {
+            realtime = TRUE;
 
         }else
         {
@@ -117,9 +126,31 @@ int main(int argc, const char **argv)
 
         double usElapsed = (double)ticksElapsed / CPU_SPEED_MHZ;
 
-        fdc_tick(usElapsed, &context);
-        pit_tick(usElapsed, &context);
-        rtc_tick(usElapsed, &context);
+        ticksElapsed += fdc_tick(usElapsed, &context);
+        ticksElapsed += pit_tick(usElapsed, &context);
+        ticksElapsed += rtc_tick(usElapsed, &context);
+        ticksElapsed += usart_tick(usElapsed, &context);
+
+        usElapsed = (double)ticksElapsed / CPU_SPEED_MHZ;
+
+        if(usart_hasTxChar())
+        {
+            addch(usart_getTxChar());
+        }
+
+        int c = getch();
+        if(c != ERR)
+        {
+            usart_rxChar(c);
+        }
+
+        if(realtime)
+        {
+            struct timespec ts;
+            ts.tv_sec = 0;
+            ts.tv_nsec = usElapsed * 1000;
+            nanosleep(&ts, NULL);
+        }
     }
 
     endwin();

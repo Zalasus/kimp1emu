@@ -12,9 +12,7 @@ void pit_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 
 }
 
-void pit_tick(double usElapsed, KIMP_CONTEXT *context)
+uint32_t pit_tick(double usElapsed, KIMP_CONTEXT *context)
 {
-
-    
-
+    return 0;
 }

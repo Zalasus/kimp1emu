@@ -13,6 +13,8 @@
 #define CPU_SPEED 2457600
 #define CPU_SPEED_MHZ 2.4576
 
+#define USART_BAUD 9600
+
 typedef struct KIMP_CONTEXT
 {
     Z80_STATE state;

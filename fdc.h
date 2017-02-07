@@ -27,6 +27,6 @@ extern void fdc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context);
 extern void fdc_writeOpReg(uint8_t data, KIMP_CONTEXT *context);
 extern void fdc_writeContReg(uint8_t data, KIMP_CONTEXT *context);
 
-extern void fdc_tick(double usElapsed, KIMP_CONTEXT *context);
+extern uint32_t fdc_tick(double usElapsed, KIMP_CONTEXT *context);
 
 #endif

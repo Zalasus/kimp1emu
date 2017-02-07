@@ -3,31 +3,89 @@
 
 #include "z80emu/z80emu.h"
 
-static uint8_t _fdc_opReg = 0;
-static uint8_t _fdc_contReg = 0;
+static uint8_t opReg = 0;
+static uint8_t contReg = 0;
 
 static enum
 {
-    PHASE_COMMAND,
-    PHASE_EXEC,
-    PHASE_RESULT
-} _fdc_phase = PHASE_COMMAND;
+    COM_NULL,
+    COM_SPECIFY,
+    COM_SENSE_INTERRUPT_STATUS,
+    COM_RECALIBRATE,
+    COM_SEEK,
+    COM_READ,
+    COM_WRITE,
+    COM_FORMAT
+} command = COM_NULL;
 
-static uint8_t _fdc_command = 0;
+static enum
+{
+    STATE_COMM_WAIT_FOR_OPCODE,
+    STATE_COMM_PRE_ARGUMENT_DELAY,
+    STATE_COMM_WAIT_FOR_ARGUMENTS,
+    STATE_COMM_INTER_ARGUMENT_DELAY,
+    STATE_EXEC_WAIT_FOR_READ,
+    STATE_EXEC_WAIT_FOR_WRITE,
+    STATE_EXEC_PROCESSING_DELAY,
+    STATE_RESU_WAIT_FOR_READ,
+    STATE_RESU_INTER_READ_DELAY,
+    STATE_RESETTING
 
-static double _fdc_resetTime = 0;
+} state = STATE_COMM_WAIT_FOR_OPCODE;
+
+static uint8_t argumentsExpected = 0;
+static uint8_t argumentCount = 0;
+static uint8_t arguments[16];
+
+static double usDelay = 0;
+
+
+
+static void decodeOpcode(uint8_t op)
+{
+    if(op == 0x03) // specify
+    {
+        command = COM_SPECIFY;
+        argumentsExpected = 2;
+    }
+}
+
+static void advanceCommandState()
+{
+    switch(command)
+    {
+
+    }
+}
+
 
 uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
 {
     if(address == 0) // MSR
     {
-        if(_fdc_phase == PHASE_EXEC)
+        switch(state)
         {
-            return (1 << BIT_FDC_BUSY) | (1 << BIT_FDC_EXEC_MODE);
-
-        }else if(_fdc_phase == PHASE_COMMAND)
-        {
+        case STATE_COMM_WAIT_FOR_OPCODE:
+        case STATE_COMM_WAIT_FOR_ARGUEMENTS:
             return (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
+
+        case STATE_EXEC_WAIT_FOR_READ:
+            return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
+
+        case STATE_EXEC_WAIT_FOR_WRITE:
+            return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY) | (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
+
+        case STATE_EXEC_PROCESSING_DELAY:
+            return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY);
+
+        case STATE_RESU_WAIT_FOR_READ:
+            return (1 << BIT_FDC_REQUEST_FOR_MASTER);
+
+        case STATE_COMM_PRE_ARGUMENT_DELAY:
+        case STATE_COMM_INTER_ARGUMENT_DELAY:
+        case STATE_RESU_INTER_READ_DELAY:
+        default:
+            return 0;
         }
 
     }else if(address == 1) // Data
@@ -40,40 +98,89 @@ uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
 
 void fdc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 {
+    if(address == 0) // MSR1 (powerdown; only on C version)
+    {
+        
 
+    }else if(address == 1) // Data
+    {
+        switch(state)
+        {
+        case STATE_COMM_WAIT_FOR_OPCODE:    
+            decodeOpcode(data);
+            if(argumentsExpected)
+            {
+                state = STATE_COMM_PRE_ARGUMENT_DELAY;
+                usDelay = 12;
+
+            }else
+            {
+                advanceCommandState();
+            }
+            break;
+        
+        case STATE_COMM_WAIT_FOR_ARGUMENT:
+            arguments[argumentCount++] = data;
+            if(argumentCount >= argumentsExpected)
+            {
+                
+            }
+            break;
+        
+        }
+    }
 }
 
 void fdc_writeOpReg(uint8_t data, KIMP_CONTEXT *context)
 {
-    _fdc_opReg = data;
+    opReg = data;
 
-    if(_fdc_opReg & (1 << BIT_FDC_SOFT_RESET))
+    if(opReg & (1 << BIT_FDC_SOFT_RESET))
     {
-        _fdc_resetTime = 0;
+        usDelay = 12;
+        state = STATE_RESETTING;
     }
 }
 
 void fdc_writeContReg(uint8_t data, KIMP_CONTEXT *context)
 {
-    _fdc_contReg = data;
+    contReg = data;
 }
 
-void fdc_tick(double usElapsed, KIMP_CONTEXT *context)
+uint32_t fdc_tick(double usElapsed, KIMP_CONTEXT *context)
 {
-    if(_fdc_opReg & (1 << BIT_FDC_SOFT_RESET))
+    uint32_t additionalTicks = 0;
+
+    if(usDelay > 0)
     {
-        _fdc_resetTime += usElapsed;
-
-        if(_fdc_resetTime >= 16000)
+        usDelay -= usElapsed;  
+ 
+    }else
+    {
+        switch(state)
         {
-            _fdc_opReg &= ~(1 << BIT_FDC_SOFT_RESET);
-            _fdc_resetTime = 0;
-            _fdc_phase = PHASE_COMMAND;
-            _fdc_command = 0;
+        case STATE_COMM_PRE_ARGUMENT_DELAY:
+        case STATE_COMM_INTER_ARGUMENT_DELAY:
+            state = STATE_COMM_WAIT_FOR_ARGUMENT;
+            break;
 
-            Z80Interrupt(&(context->state), context->ivr_fdc, context);
+        case STATE_RESU_INTER_READ_DELAY:
+            state = STATE_RESU_WAIT_FOR_READ;
+            break;
+
+        case STATE_RESETTING:
+            opReg &= ~(1 << BIT_FDC_SOFT_RESET);
+            state = STATE_COMM_WAITING_FOR_OPCODE;
+            command = COM_NULL;
+            additionalTicks += Z80Interrupt(&(context->state), context->ivr_fdc, context);
+            break;
+
+        default:
+            break;
         }
     }
+
+    return additionalTicks;
 }
 
 
