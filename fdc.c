@@ -20,6 +20,7 @@ static enum
 
 static enum
 {
+    STATE_COMM_PRE_OPCODE_DELAY,
     STATE_COMM_WAIT_FOR_OPCODE,
     STATE_COMM_PRE_ARGUMENT_DELAY,
     STATE_COMM_WAIT_FOR_ARGUMENTS,
@@ -39,6 +40,8 @@ static uint8_t arguments[16];
 
 static double usDelay = 0;
 
+static uint8_t status0 = 0;
+
 
 
 static void decodeOpcode(uint8_t op)
@@ -46,15 +49,29 @@ static void decodeOpcode(uint8_t op)
     if(op == 0x03) // specify
     {
         command = COM_SPECIFY;
+        state = STATE_COMM_PRE_ARGUMENT_DELAY;
+        usDelay = 12;
         argumentsExpected = 2;
+
+    }else // invalid command
+    {
+        command = COM_NULL;
+        state = STATE_RESU_WAIT_FOR_READ;
+        status0 = 0x80;
     }
 }
 
-static void advanceCommandState()
+static void lastArgumentRead()
 {
     switch(command)
     {
+    case COM_SPECIFY:
+        state = STATE_COMM_PRE_OPCODE_DELAY;
+        usDelay = 12;
+        break;
 
+    default:
+        break;
     }
 }
 
@@ -67,20 +84,21 @@ uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
         {
         case STATE_COMM_WAIT_FOR_OPCODE:
         case STATE_COMM_WAIT_FOR_ARGUEMENTS:
-            return (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
+            return (1 << BIT_FDC_REQUEST_FOR_MASTER);
 
         case STATE_EXEC_WAIT_FOR_READ:
-            return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
+            return (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
 
         case STATE_EXEC_WAIT_FOR_WRITE:
-            return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY) | (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
+            return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
 
         case STATE_EXEC_PROCESSING_DELAY:
             return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY);
 
         case STATE_RESU_WAIT_FOR_READ:
-            return (1 << BIT_FDC_REQUEST_FOR_MASTER);
+            return (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
 
+        case STATE_COMM_PRE_OPCODE_DELAY:
         case STATE_COMM_PRE_ARGUMENT_DELAY:
         case STATE_COMM_INTER_ARGUMENT_DELAY:
         case STATE_RESU_INTER_READ_DELAY:
@@ -108,22 +126,13 @@ void fdc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
         {
         case STATE_COMM_WAIT_FOR_OPCODE:    
             decodeOpcode(data);
-            if(argumentsExpected)
-            {
-                state = STATE_COMM_PRE_ARGUMENT_DELAY;
-                usDelay = 12;
-
-            }else
-            {
-                advanceCommandState();
-            }
             break;
         
         case STATE_COMM_WAIT_FOR_ARGUMENT:
             arguments[argumentCount++] = data;
             if(argumentCount >= argumentsExpected)
             {
-                
+                lastArgumentRead();
             }
             break;
         
@@ -159,6 +168,10 @@ uint32_t fdc_tick(double usElapsed, KIMP_CONTEXT *context)
     {
         switch(state)
         {
+        case STATE_COMM_PRE_OPCODE_DELAY:
+            state = STATE_COMM_WAIT_FOR_OPCODE;
+            break;
+
         case STATE_COMM_PRE_ARGUMENT_DELAY:
         case STATE_COMM_INTER_ARGUMENT_DELAY:
             state = STATE_COMM_WAIT_FOR_ARGUMENT;
