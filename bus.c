@@ -164,7 +164,7 @@ void ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 
             }else if(cst == 2)
             {
-                context->ebcr = data;
+                context->ebcr = (context->ebcr & 0xfe) | (data & 0x01);
             }
         }
         break;

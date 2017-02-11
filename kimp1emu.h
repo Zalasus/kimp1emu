@@ -33,5 +33,6 @@ typedef struct KIMP_CONTEXT
 
 } KIMP_CONTEXT;
 
+extern void kimp_debug(const char *msg, ...);
 
 #endif

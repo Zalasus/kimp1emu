@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <stdarg.h>
 #define __USE_POSIX199309
 #include <time.h>
 #include <string.h>
@@ -18,7 +19,7 @@ void kimp_init(KIMP_CONTEXT *context)
     //  that have a reset. every other value is random
     //  on the real thing, too
     context->tccr = 0;
-    context->ebcr = 0;
+    context->ebcr = 0x80; // opl irq normally high
 
     context->has_extension = FALSE;
     context->stopped = FALSE;
@@ -46,15 +47,29 @@ int loadRomfile(const char *romfilename, KIMP_CONTEXT *context)
     return 0;
 }
 
+void kimp_debug(const char *msg, ...)
+{
+    attron(COLOR_PAIR(1));
+
+    va_list args;
+    va_start(args, msg);
+    vwprintw(stdscr, msg, args);
+    printw("\n");
+    va_end(args);
+
+    attroff(COLOR_PAIR(1));
+}
+
 void ui_init()
 {
-
     initscr();
     noecho();
     cbreak();
     nodelay(stdscr, TRUE);
     scrollok(stdscr, TRUE);
-
+    idlok(stdscr, TRUE);
+    start_color();
+    init_pair(1, COLOR_GREEN, COLOR_BLACK);
 }
 
 void usage()
@@ -117,12 +132,12 @@ int main(int argc, const char **argv)
     }
 
     ui_init();
-    
+
     Z80Reset(&context.state);
 
     while(!context.stopped)
     {
-        uint32_t ticksElapsed = Z80Emulate(&context.state, 50, &context);
+        uint32_t ticksElapsed = Z80Emulate(&context.state, 1, &context);
 
         double usElapsed = (double)ticksElapsed / CPU_SPEED_MHZ;
 

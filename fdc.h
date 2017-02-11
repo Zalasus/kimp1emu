@@ -39,6 +39,8 @@
 #define BIT_FDC_DATA_ERROR          5
 #define BIT_FDC_END_OF_CYLINDER     7
 
+#define US_PER_REVOLUTION  200000  // at 300rpm
+
 
 extern uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context);
 extern void fdc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context);
