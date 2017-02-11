@@ -39,7 +39,7 @@ static uint8_t arguments[16];
 static double usDelay = 0;
 
 static uint8_t opReg = (1 << BIT_FDC_SOFT_RESET);
-static uint8_t contReg = 0;
+static uint8_t dataRate = 0x02;
 
 static uint8_t status0 = 0;
 static uint8_t status1 = 0;
@@ -66,14 +66,20 @@ static uint8_t irqLine = 0;
 
 static void raiseInterrupt()
 {
-    irqLine = 1;
-    kimp_debug("[FDC] Raising interrupt");
+    if(!irqLine)
+    {
+        irqLine = 1;
+        kimp_debug("[FDC] Raising interrupt");
+    }
 }
 
 static void lowerInterrupt()
 {
-    irqLine = 0;
-    kimp_debug("[FDC] Lowering interrupt");
+    if(irqLine)
+    {
+        irqLine = 0;
+        kimp_debug("[FDC] Lowering interrupt");
+    }
 }
 
 static void enterResultPhase()
@@ -226,6 +232,7 @@ static void decodeOpcode(uint8_t op)
     }else if(op == 0x08) // sense interrupt status
     {
         kimp_debug("[FDC] Issued SENSEI command...");
+        lowerInterrupt();
         command = COM_SENSE_INTERRUPT_STATUS;
         enterResultPhase();
 
@@ -251,13 +258,6 @@ static void decodeOpcode(uint8_t op)
 
 uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
 {
-    // the datasheet is not clear on whether any r/w will clear irq or just specific ones
-    //  depending on interrupt cause. just assume first case
-    if(irqLine)
-    {
-        lowerInterrupt();
-    }
-
     if(address == 0) // MSR
     {
         switch(state)
@@ -288,16 +288,22 @@ uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
 
     }else if(address == 1) // Data
     {
+
         switch(state)
         {
         case STATE_EXEC_WAIT_FOR_READ:
             state = STATE_EXEC_PROCESSING_DELAY;
             usDelay = (usDelay > 27) ? (27 - usDelay) : 0; // don't need to delay cycles spent waiting for service
             return 42; // return data byte here
-            //TODO: atm read and write never terminates. 
+            //TODO: atm read and write never terminates.
 
         case STATE_RESU_WAIT_FOR_READ:
             kimp_debug("[FDC] Handed over result byte (%x)", resultBytes[resultBytesRead]);
+            if(irqLine)
+            {
+                // reading result bytes will clear interrupt
+                lowerInterrupt();
+            }
             if(resultBytesRead+1 >= resultBytesAvailable)
             {
                 // all result bytes read
@@ -323,19 +329,13 @@ uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
 
 void fdc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 {
-    // the datasheet is not clear on whether any r/w will clear irq or just specific ones
-    //  depending on interrupt cause. just assume first case
-    if(irqLine)
-    {
-        lowerInterrupt();
-    }
-
     if(address == 0) // MSR1 (powerdown; only on C version)
     {
         
 
     }else if(address == 1) // Data
     {
+
         switch(state)
         {
         case STATE_COMM_WAIT_FOR_OPCODE:
@@ -355,6 +355,7 @@ void fdc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
         case STATE_EXEC_WAIT_FOR_WRITE:
             state = STATE_EXEC_PROCESSING_DELAY;
             usDelay = (usDelay > 27) ? (27 - usDelay) : 0; // don't need to delay cycles spent waiting for service
+            lowerInterrupt(); // servicing will lower irq line
             // write data byte here
             break;
 
@@ -367,6 +368,8 @@ void fdc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
 
 void fdc_writeOpReg(uint8_t data, KIMP_CONTEXT *context)
 {
+    kimp_debug("[FDC] Write to OPER (%x)", data);
+
     opReg = data;
 
     if(!(opReg & (1 << BIT_FDC_SOFT_RESET)))
@@ -376,33 +379,14 @@ void fdc_writeOpReg(uint8_t data, KIMP_CONTEXT *context)
         kimp_debug("[FDC] Soft reset...");
     }
 
-    if(opReg & (1 << BIT_FDC_DRIVE_SELECT))
-    {
-        currentDrive = 1;
-        kimp_debug("[FDC] Selected drive 1");
-
-    }else
-    {
-        currentDrive = 0;
-        kimp_debug("[FDC] Selected drive 0");
-    }
-
-    if((opReg & (1 << BIT_FDC_MOTOR_ENABLE_1)) || (opReg & (1 << BIT_FDC_MOTOR_ENABLE_2)))
-    {
-        if(currentDrive == 0)
-        {
-            kimp_debug("[FDC] Motor of drive 0 enabled");
-
-        }else
-        {
-            kimp_debug("[FDC] Motor of drive 1 enabled");
-        }
-    }
+    currentDrive = (opReg & (1 << BIT_FDC_DRIVE_SELECT)) ? 1 : 0;
 }
 
 void fdc_writeContReg(uint8_t data, KIMP_CONTEXT *context)
 {
-    contReg = data;
+    dataRate = data & 0x03;
+
+    kimp_debug("[FDC] Set data rate (%x)", dataRate);
 }
 
 uint32_t fdc_tick(double usElapsed, KIMP_CONTEXT *context)

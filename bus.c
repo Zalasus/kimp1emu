@@ -156,10 +156,12 @@ void ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
         {
             if(cst == 0) // ebcr at line 2, line 0,1 are IVRs. line 3 not used atm
             {
+                kimp_debug("[BUS] Wrote FDC-IVR (%x)", data);
                 context->ivr_fdc = data;
 
             }else if(cst == 1)
             {
+                kimp_debug("[BUS] Wrote RTC-IVR (%x)", data);
                 context->ivr_rtc = data;
 
             }else if(cst == 2)
