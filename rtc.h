@@ -15,6 +15,9 @@
 #define BIT_RTC_T0          2
 #define BIT_RTC_T1          3
 
+// CF bits
+#define BIT_RTC_REST        0
+
 extern uint8_t rtc_ioRead(uint16_t address, KIMP_CONTEXT *context);
 extern void rtc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context);
 

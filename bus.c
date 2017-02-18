@@ -86,7 +86,7 @@ uint8_t ioRead(uint16_t address, KIMP_CONTEXT *context)
         {
             if(cst == 2) // ebcr at line 2, line 0,1 are IVRs. line 3 not used atm
             {
-                return context->ebcr ^ 1; // first bit reads inverted
+                return (context->ebcr ^ 1) | 0x80; // bit 0 reads inverted, bit 7 is (active low) opl irq line. keep high for now
             }
 
             return floatingBus(); // IVRs are not readable

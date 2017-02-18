@@ -12,6 +12,7 @@ static uint8_t h10 = 0;
 
 static uint8_t irqFlag = 0;
 static uint8_t ce = (1 << BIT_RTC_MASK);
+static uint8_t cf = 0;
 
 static void raiseInterrupt()
 {
@@ -70,6 +71,15 @@ void rtc_ioWrite(uint16_t address, uint8_t data, KIMP_CONTEXT *context)
         kimp_debug("[RTC] Wrote CE (%x)", data);
         ce = data;
         break;
+
+    case 0x0f:
+        kimp_debug("[RTC] Wrote CF (%x)", data);
+        cf = data;
+        if(cf & (1 << BIT_RTC_REST))
+        {
+            usTime = 0;
+        }
+        break;
     
     default:
         break;
@@ -81,6 +91,11 @@ uint32_t rtc_tick(double usElapsed, KIMP_CONTEXT *context)
     uint32_t additionalTicks = 0;
 
     usTime += usElapsed;
+
+    if(cf & (1 << BIT_RTC_REST))
+    {
+        usTime = 0;
+    }
 
     if(usTime >= 7812.5 && !(ce & (1 << BIT_RTC_ITRPT_STND))) // standard pulse selected?
     {
@@ -127,6 +142,11 @@ uint32_t rtc_tick(double usElapsed, KIMP_CONTEXT *context)
     if(irqFlag)
     {
         additionalTicks += Z80Interrupt(&(context->state), context->ivr_rtc, &context);
+
+        if(additionalTicks > 0)
+        {
+            kimp_debug("[RTC] CPU accepted interrupt");
+        }
     }
 
     return additionalTicks;

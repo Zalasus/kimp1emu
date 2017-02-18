@@ -38,7 +38,7 @@ static uint8_t arguments[16];
 
 static double usDelay = 0;
 
-static uint8_t opReg = (1 << BIT_FDC_SOFT_RESET);
+static uint8_t opReg = (1 << BIT_FDC_SOFT_RESET) | (1 << BIT_FDC_DMA_ENABLE);
 static uint8_t dataRate = 0x02;
 
 static uint8_t status0 = 0;
@@ -55,6 +55,9 @@ static uint8_t targetTrack = 0;
 static uint8_t currentHead = 0;
 static uint8_t currentSector = 0;
 
+static uint8_t execBytesTransferred = 0;
+static uint8_t execBytesExpected = 0;
+
 static double stepTime = 1000;
 static double headLoadTime = 2000;
 static double headUnloadTime = 16000;
@@ -66,7 +69,7 @@ static uint8_t irqLine = 0;
 
 static void raiseInterrupt()
 {
-    if(!irqLine)
+    if(!irqLine && (opReg & (1 << BIT_FDC_DMA_ENABLE)))
     {
         irqLine = 1;
         kimp_debug("[FDC] Raising interrupt");
@@ -118,6 +121,7 @@ static void enterResultPhase()
     default:  // command has no result phase. go to command phase instead
         state = STATE_COMM_PRE_OPCODE_DELAY;
         usDelay = 12;
+        command = COM_NULL;
         break;
     }
 }
@@ -153,6 +157,18 @@ static void execTick()
         break;
 
     case COM_FORMAT:
+        if(execBytesTransferred >= execBytesExpected)
+        {
+            enterResultPhase();
+
+        }else
+        {
+            state = STATE_EXEC_WAIT_FOR_WRITE;
+            usDelay = US_PER_REVOLUTION / (arguments[2] * 4); // strech out writes over one rev
+            raiseInterrupt();
+        }
+        break;
+
     default:
         enterResultPhase();
         break;
@@ -165,10 +181,20 @@ static void enterExecPhase()
     {
     case COM_READ:
     case COM_WRITE:
-    case COM_FORMAT:
-        //TODO: extract unit information from arguments here (seperate format & r/w as the have different args)
+        if((arguments[0] & 0x03) != currentDrive) kimp_debug("[FDC] Error: drive in command arg does not match selected one in OpReg");
+        if(!(((opReg >> BIT_FDC_MOTOR_ENABLE_1) & 0x03) & (currentDrive + 1))) kimp_debug("[FDC] Error: Motor not on");
+        if(arguments[2] != ((arguments[0] >> 2) & 1)) kimp_debug("[FDC] Error: Head number mismatch in command arguments");
         state = STATE_EXEC_PROCESSING_DELAY;
-        usDelay = US_PER_REVOLUTION; // worst case for r/w is one revolution to find sector, best case for format
+        usDelay = US_PER_REVOLUTION; // worst case for r/w is one revolution to find sector
+        break;
+
+    case COM_FORMAT:
+        if((arguments[0] & 0x03) != currentDrive) kimp_debug("[FDC] Error: Drive in command arg does not match selected one in OpReg");
+        if(!(((opReg >> BIT_FDC_MOTOR_ENABLE_1) & 0x03) & (currentDrive + 1))) kimp_debug("[FDC] Error: Motor not on");
+        state = STATE_EXEC_PROCESSING_DELAY;
+        usDelay = US_PER_REVOLUTION; // worst case for finding index hole is one revolution
+        execBytesTransferred = 0;
+        execBytesExpected = arguments[2] * 4; // argument #2 is sectors/track, 4 bytes per sector needed
         break;
 
     case COM_SPECIFY:
@@ -178,18 +204,20 @@ static void enterExecPhase()
         stepTime = (0x10 - (arguments[0] >> 4))*1000.0;
         headUnloadTime = (arguments[0] & 0x0f)*16000.0;
         headLoadTime = (arguments[1] >> 1)*2000.0;
-        opReg = (opReg & ~(1 << BIT_FDC_DMA_ENABLE)) | (((arguments[1] & 1)^1) << BIT_FDC_DMA_ENABLE);
-        kimp_debug("[FDC] Specified SRT=%f HUT=%f HLT=%f NODMA=%c", stepTime, headUnloadTime, headLoadTime, (opReg & (1 << BIT_FDC_DMA_ENABLE)) ? '0' : '1');
+        kimp_debug("[FDC] Specified SRT=%f HUT=%f HLT=%f NODMA=%c", stepTime, headUnloadTime, headLoadTime, (arguments[0] & 1) ? '1' : '0');
+        if(!(arguments[0] & 1)) kimp_debug("[FDC] Error: DMA mode unsupported");
         enterResultPhase(); // no exec phase
         break;
 
     case COM_RECALIBRATE:
+        if((arguments[0] & 0x03) != currentDrive) kimp_debug("[FDC] Error: drive in command arg does not match selected one in OpReg");
         state = STATE_EXEC_PROCESSING_DELAY;
         targetTrack = 0;
         usDelay = 0; // start stepping right ahead
         break;
 
     case COM_SEEK:
+        if((arguments[0] & 0x03) != currentDrive) kimp_debug("[FDC] Error: drive in command arg does not match selected one in OpReg");
         state = STATE_EXEC_PROCESSING_DELAY;
         targetTrack = arguments[1];
         usDelay = 0; // start stepping right ahead
@@ -276,7 +304,7 @@ uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
             return (1 << BIT_FDC_EXEC_MODE) | (1 << BIT_FDC_BUSY);
 
         case STATE_RESU_WAIT_FOR_READ:
-            return (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_REQUEST_FOR_MASTER);
+            return (1 << BIT_FDC_DATA_INPUT) | (1 << BIT_FDC_REQUEST_FOR_MASTER) | (1 << BIT_FDC_BUSY);
 
         case STATE_COMM_PRE_OPCODE_DELAY:
         case STATE_COMM_PRE_ARGUMENT_DELAY:
@@ -294,6 +322,7 @@ uint8_t fdc_ioRead(uint16_t address, KIMP_CONTEXT *context)
         case STATE_EXEC_WAIT_FOR_READ:
             state = STATE_EXEC_PROCESSING_DELAY;
             usDelay = (usDelay > 27) ? (27 - usDelay) : 0; // don't need to delay cycles spent waiting for service
+            lowerInterrupt(); // servicing will lower irq line
             return 42; // return data byte here
             //TODO: atm read and write never terminates.
 
@@ -374,9 +403,20 @@ void fdc_writeOpReg(uint8_t data, KIMP_CONTEXT *context)
 
     if(!(opReg & (1 << BIT_FDC_SOFT_RESET)))
     {
-        usDelay = 12;
+        usDelay = 0;
         state = STATE_RESETTING;
+        command = COM_NULL;
+        execBytesTransferred = 0;
+        execBytesExpected = 0;
+        resultBytesRead = 0;
+        resultBytesAvailable = 0;
         kimp_debug("[FDC] Soft reset...");
+
+    }else if(state == STATE_RESETTING)
+    {
+        state = STATE_COMM_WAIT_FOR_OPCODE;
+        kimp_debug("[FDC] Soft reset lifted!");
+        raiseInterrupt();
     }
 
     currentDrive = (opReg & (1 << BIT_FDC_DRIVE_SELECT)) ? 1 : 0;
@@ -427,13 +467,6 @@ uint32_t fdc_tick(double usElapsed, KIMP_CONTEXT *context)
             state = STATE_RESU_WAIT_FOR_READ;
             break;
 
-        case STATE_RESETTING:
-            opReg |= (1 << BIT_FDC_SOFT_RESET);
-            state = STATE_COMM_WAIT_FOR_OPCODE;
-            command = COM_NULL;
-            raiseInterrupt();
-            break;
-
         default:
             break;
         }
@@ -442,6 +475,11 @@ uint32_t fdc_tick(double usElapsed, KIMP_CONTEXT *context)
     if(irqLine)
     {
         additionalTicks += Z80Interrupt(&(context->state), context->ivr_fdc, context);
+
+        if(additionalTicks > 0)
+        {
+            kimp_debug("[FDC] CPU accepted interrupt");
+        }
     }
 
     return additionalTicks;

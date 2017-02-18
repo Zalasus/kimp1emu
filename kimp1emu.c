@@ -13,6 +13,14 @@
 #include "rtc.h"
 #include "usart.h"
 
+
+static WINDOW *termpad = NULL;
+static int screenlines = 0;
+static int screencols = 0;
+static int newlineCount = 0;
+static int termline = 0;
+static int termlineMax = 0;
+
 void kimp_init(KIMP_CONTEXT *context)
 {
     // we really only need to initialize registers
@@ -47,30 +55,44 @@ int loadRomfile(const char *romfilename, KIMP_CONTEXT *context)
     return 0;
 }
 
-void kimp_debug(const char *msg, ...)
-{
-    attron(COLOR_PAIR(1));
-
-    va_list args;
-    va_start(args, msg);
-    vwprintw(stdscr, msg, args);
-    printw("\n");
-    va_end(args);
-
-    attroff(COLOR_PAIR(1));
-}
-
 void ui_init()
 {
     initscr();
     noecho();
     cbreak();
     nodelay(stdscr, TRUE);
+    keypad(stdscr, TRUE);
     scrollok(stdscr, TRUE);
-    idlok(stdscr, TRUE);
+    //idlok(stdscr, TRUE);
     start_color();
     init_pair(1, COLOR_GREEN, COLOR_BLACK);
+
+    getmaxyx(stdscr, screenlines, screencols);
+
+    termpad = newpad(screenlines*16, screencols); // times 16 backscroll
+    termlineMax = screenlines*16-1;
+    scrollok(termpad, TRUE);
 }
+
+void ui_termrefresh()
+{
+    prefresh(termpad, termline, 0, 1, 0, screenlines-1, screencols-1);
+}
+
+void kimp_debug(const char *msg, ...)
+{
+    wattron(termpad, COLOR_PAIR(1));
+
+    va_list args;
+    va_start(args, msg);
+    vwprintw(termpad, msg, args);
+    wprintw(termpad, "\n");
+    va_end(args);
+
+    wattroff(termpad, COLOR_PAIR(1));
+    ui_termrefresh();
+}
+
 
 void usage()
 {
@@ -126,18 +148,19 @@ int main(int argc, const char **argv)
         return -1;
     }
 
+    ui_init();
+
     if(loadRomfile(romfilename, &context))
     {
         return -1;
     }
-
-    ui_init();
+    
 
     Z80Reset(&context.state);
 
     while(!context.stopped)
     {
-        uint32_t ticksElapsed = Z80Emulate(&context.state, 1, &context);
+        uint32_t ticksElapsed = Z80Emulate(&context.state, 20, &context);
 
         double usElapsed = (double)ticksElapsed / CPU_SPEED_MHZ;
 
@@ -150,12 +173,37 @@ int main(int argc, const char **argv)
 
         if(usart_hasTxChar())
         {
-            addch(usart_getTxChar());
+            uint8_t c = usart_getTxChar();
+            
+            waddch(termpad, c);
+            ui_termrefresh();
         }
 
         int c = getch();
-        if(c != ERR)
+        switch(c)
         {
+        case ERR:
+            break;
+
+        case KEY_ENTER:
+            usart_rxChar(0x0A); // lf
+            break;
+
+        case KEY_BACKSPACE:
+            usart_rxChar(0x08); // bs
+            break;
+
+        case KEY_PPAGE: // page up
+            if(termline > 0) termline--;
+            ui_termrefresh();
+            break;            
+
+        case KEY_NPAGE: // page down
+            if(termline < termlineMax) termline++;
+            ui_termrefresh();
+            break;
+
+        default:
             usart_rxChar(c);
         }
 
