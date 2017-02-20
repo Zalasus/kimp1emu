@@ -186,7 +186,8 @@ int main(int argc, const char **argv)
             break;
 
         case KEY_ENTER:
-            usart_rxChar(0x0A); // lf
+        case 0x0A:
+            usart_rxChar(0x0D); // cr
             break;
 
         case KEY_BACKSPACE:
